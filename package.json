@@ -1,0 +1,14 @@
+{
+  "name": "codex-activity-card",
+  "version": "1.0.0",
+  "private": false,
+  "description": "Generate a self-updating Codex activity SVG for a GitHub profile README.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "update": "node scripts/update-codex-card.mjs"
+  },
+  "license": "MIT"
+}
