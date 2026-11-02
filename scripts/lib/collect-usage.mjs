@@ -57,7 +57,7 @@ export function collectUsage({ spawnProcess = spawn, timeoutMs = 30_000 } = {}) 
     });
     send({
       method: 'initialize', id: 1,
-      params: { clientInfo: { name: 'codex_activity_card', title: 'Codex Activity Card', version: '1.1.0' } },
+      params: { clientInfo: { name: 'codex_activity_card', title: 'Codex Activity Card', version: '1.2.0' } },
     });
   });
 }

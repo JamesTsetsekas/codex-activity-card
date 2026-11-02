@@ -57,6 +57,29 @@ test('text-only rendering removes the brand mark', () => {
   }
 });
 
+test('transparent neutral cards blend into their page without a colored surface or accent', () => {
+  for (const template of ['minimal', 'terminal', 'badge']) {
+    for (const theme of ['dark', 'light']) {
+      const svg = renderCard(summary, { template, theme, checkedAt });
+      assert.doesNotMatch(svg, /<rect x="0\.5"/);
+      assert.doesNotMatch(svg, /#171c19|#fafcf8|#b4dca5|#3e6734/);
+      const primary = theme === 'dark' ? '#f0f3f6' : '#1f2328';
+      assert.ok(svg.includes(`fill="${primary}"`));
+    }
+  }
+});
+
+test('solid surfaces and the original green palette remain explicit independent options', () => {
+  const neutral = renderCard(summary, { checkedAt, background: 'solid' });
+  assert.match(neutral, /<rect x="0\.5"[^>]*fill="#0d1117"/);
+  const green = renderCard(summary, { checkedAt, palette: 'green', background: 'solid' });
+  assert.match(green, /<rect x="0\.5"[^>]*fill="#171c19"/);
+  assert.match(green, /fill="#b4dca5"/);
+  assert.doesNotMatch(renderCard(summary, { checkedAt, palette: 'green' }), /<rect x="0\.5"/);
+  assert.throws(() => renderCard(summary, { palette: '__proto__' }));
+  assert.throws(() => renderCard(summary, { background: '<script>' }));
+});
+
 test('validates presentation options and timestamps before interpolation', () => {
   for (const options of [null, [], { template: '<script>' }, { theme: '__proto__' }, { cadence: '<script>' }, { logo: 'yes' }, { checkedAt: 'not a date' }, { checkedAt: '2026-11-02T23:17:00Z<script>' }, { checkedAt: '2026-11-02' }, { checkedAt: '2026-02-31T00:00:00Z' }]) {
     assert.throws(() => renderCard(summary, options));

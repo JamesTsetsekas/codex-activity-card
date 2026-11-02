@@ -33,10 +33,10 @@ async function save(url, contents) {
 
 for (const template of ['minimal', 'terminal', 'badge']) {
   for (const theme of ['dark', 'light']) {
-    const svg = renderCard(summary, { template, theme, checkedAt, cadence: 'hourly' });
+    const svg = renderCard(summary, { template, theme, checkedAt, cadence: 'hourly', background: 'solid' });
     await save(new URL(`${template}-${theme}.svg`, examples), svg);
     if (template === 'minimal' && theme === 'dark') {
-      await save(new URL('codex-activity.svg', assets), svg);
+      await save(new URL('codex-activity.svg', assets), renderCard(summary, { checkedAt, cadence: 'hourly' }));
     }
   }
 }

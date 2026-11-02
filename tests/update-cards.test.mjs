@@ -29,17 +29,23 @@ test('CLI defaults and explicit configuration are independent', () => {
   assert.equal(defaults.theme, 'dark');
   assert.equal(defaults.cadence, 'hourly');
   assert.equal(defaults.logo, true);
+  assert.equal(defaults.palette, 'neutral');
+  assert.equal(defaults.background, 'transparent');
   const custom = parseArguments(['--template', 'terminal', '--theme', 'light', '--cadence', 'manual', '--no-logo']);
   assert.equal(custom.template, 'terminal');
   assert.equal(custom.theme, 'light');
   assert.equal(custom.cadence, 'manual');
   assert.equal(custom.logo, false);
+  const classic = parseArguments(['--palette', 'green', '--background', 'solid']);
+  assert.equal(classic.palette, 'green');
+  assert.equal(classic.background, 'solid');
 });
 
 test('unsupported, missing, and duplicate arguments fail before starting Codex', () => {
   for (const args of [
     ['--unknown'], ['--output'], ['--input', '--theme', 'dark'],
     ['--theme', 'blue'], ['--template', 'html'], ['--cadence', 'never'],
+    ['--palette', 'blue'], ['--background', 'gradient'],
     ['--theme', 'dark', '--theme', 'light'], ['--no-logo', '--no-logo'],
   ]) assert.throws(() => parseArguments(args));
 });
@@ -94,6 +100,11 @@ test('new usage and presentation choices refresh the timestamp and card', async 
   });
   assert.equal(restyled.changed, 1);
   assert.notEqual(await readFile(output, 'utf8'), updated);
+  const solid = await updateCards({ ...options, background: 'solid' }, {
+    readUsage: async () => ({ ...summary, currentStreakDays: 158 }), now: clock(laterCheck),
+  });
+  assert.equal(solid.changed, 1);
+  assert.match(await readFile(output, 'utf8'), /<rect x="0\.5"/);
 }));
 
 test('failed usage or invalid counts leave the last good image and record a generic failure', async () => workspace(async directory => {
