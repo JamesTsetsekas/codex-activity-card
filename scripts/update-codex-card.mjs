@@ -1,138 +1,178 @@
-/**
- * Refresh from a machine signed in to Codex:
- *   node scripts/update-codex-card.mjs
- *
- * This reads aggregate usage through the local Codex app-server and updates
- * assets/codex-activity.svg. Schedule it with cron, Task Scheduler, or a
- * runner of your choice; this script only updates the SVG.
- */
-import { spawn } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { createInterface } from 'node:readline';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { collectUsage } from './lib/collect-usage.mjs';
+import { renderCard, validateSummary } from './lib/render-card.mjs';
 
-function outputPath() {
-  const index = process.argv.indexOf('--output');
-  if (index === -1) return fileURLToPath(new URL('../assets/codex-activity.svg', import.meta.url));
+const templates = ['minimal', 'terminal', 'badge'];
+const themes = ['dark', 'light'];
+const help = `Usage: node scripts/update-codex-card.mjs [options]
 
-  const value = process.argv[index + 1];
-  if (!value || value.startsWith('--')) {
-    throw new Error('Provide a file path after --output.');
+  --output PATH       Primary SVG (default: assets/codex-activity.svg)
+  --template NAME     minimal (default), terminal, or badge
+  --theme NAME        dark (default) or light
+  --cadence NAME      hourly (default), daily, or manual; display label only
+  --no-logo           Use a text-only product label
+  --variants-dir DIR  Also write all six layout/theme combinations
+  --input PATH        Read an aggregate JSON fixture instead of Codex
+  --status PATH       Write latest check status locally, outside your public repo
+  --help              Show this help
+
+Schedule the command separately. Existing cards remain untouched on invalid usage.
+Unchanged cards keep their update timestamp and are not rewritten.
+`;
+
+export function parseArguments(args) {
+  const options = {
+    output: fileURLToPath(new URL('../assets/codex-activity.svg', import.meta.url)),
+    template: 'minimal', theme: 'dark', cadence: 'hourly', logo: true,
+  };
+  const values = new Map([
+    ['--output', 'output'], ['--template', 'template'], ['--theme', 'theme'],
+    ['--cadence', 'cadence'], ['--variants-dir', 'variantsDir'],
+    ['--input', 'input'], ['--status', 'status'],
+  ]);
+  const seen = new Set();
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    if (seen.has(flag)) throw new Error(`Option ${flag} was provided more than once.`);
+    seen.add(flag);
+    if (flag === '--help') { options.help = true; continue; }
+    if (flag === '--no-logo') { options.logo = false; continue; }
+    const name = values.get(flag);
+    if (!name) throw new Error('Unknown option. Use --help for supported options.');
+    const value = args[++i];
+    if (!value || value.startsWith('--')) throw new Error(`Provide a value after ${flag}.`);
+    options[name] = value;
   }
-  return resolve(value);
-}
-
-const cardPath = outputPath();
-
-function readUsage() {
-  return new Promise((resolve, reject) => {
-    const processHandle = spawn('codex', ['app-server'], {
-      shell: process.platform === 'win32',
-      stdio: ['pipe', 'pipe', 'ignore'],
-    });
-    const lines = createInterface({ input: processHandle.stdout });
-    let settled = false;
-    const timeout = setTimeout(() => finish(new Error('Codex usage request timed out.')), 30_000);
-
-    function finish(error, result) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      lines.close();
-      processHandle.kill();
-      if (error) reject(error);
-      else resolve(result);
-    }
-
-    function send(message) {
-      processHandle.stdin.write(`${JSON.stringify(message)}\n`);
-    }
-
-    processHandle.on('error', () => finish(new Error('Could not start the Codex CLI.')));
-    processHandle.on('exit', () => finish(new Error('Codex app-server exited before returning usage.')));
-    processHandle.stdin.on('error', () => finish(new Error('Could not send a request to Codex app-server.')));
-    lines.on('line', line => {
-      let message;
-      try {
-        message = JSON.parse(line);
-      } catch {
-        return;
-      }
-      if (message.id === 1) {
-        if (message.error) return finish(new Error('Codex app-server initialization failed.'));
-        send({ method: 'initialized' });
-        send({ method: 'account/usage/read', id: 2 });
-      }
-      if (message.id === 2) {
-        if (message.error) return finish(new Error('Codex usage is unavailable for this sign-in.'));
-        finish(null, message.result?.summary);
-      }
-    });
-    send({
-      method: 'initialize',
-      id: 1,
-      params: {
-        clientInfo: {
-          name: 'codex_activity_card',
-          title: 'Codex Activity Card',
-          version: '1.0.0',
-        },
-      },
-    });
-  });
-}
-
-function requireCount(value, name) {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new Error(`Codex did not return a valid ${name} value; card unchanged.`);
+  if (!templates.includes(options.template)) throw new Error('Template must be minimal, terminal, or badge.');
+  if (!themes.includes(options.theme)) throw new Error('Theme must be dark or light.');
+  if (!['hourly', 'daily', 'manual'].includes(options.cadence)) throw new Error('Cadence must be hourly, daily, or manual.');
+  for (const name of ['output', 'variantsDir', 'input', 'status']) {
+    if (options[name]) options[name] = resolve(options[name]);
   }
-  return value;
+  return options;
 }
 
-function compact(value) {
-  return new Intl.NumberFormat('en-US', {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(value);
+async function readOptional(path) {
+  try { return await readFile(path, 'utf8'); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
 
-function replaceText(svg, id, value) {
-  const expression = new RegExp(`(<text id="${id}"[^>]*>)[^<]*(</text>)`);
-  if (!expression.test(svg)) throw new Error(`Card is missing the ${id} field; card unchanged.`);
-  return svg.replace(expression, (_match, start, end) => `${start}${value}${end}`);
+/** A failed write cannot truncate the previous good image. */
+async function atomicWrite(path, content, mode = 0o644) {
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, content, { encoding: 'utf8', flag: 'wx', mode });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
-function updateDescription(svg, date) {
-  return svg.replace(
-    /(<desc id="description">)[^<]*(<\/desc>)/,
-    `$1Lifetime tokens, current streak, and peak daily tokens. Refreshed ${date}.$2`,
-  );
+function documentFor(summary, options, checkedAt) {
+  const svg = renderCard(summary, { ...options, checkedAt });
+  return svg.replace('</desc>', `</desc>\n  <metadata id="codex-activity-card" data-updated-at="${checkedAt}"/>`);
+}
+
+async function pathIdentity(path) {
+  if (!path) return null;
+  let current = resolve(path);
+  const missing = [];
+  while (true) {
+    try {
+      const canonical = resolve(await realpath(current), ...missing);
+      return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      const parent = dirname(current);
+      if (parent === current) throw error;
+      missing.unshift(basename(current));
+      current = parent;
+    }
+  }
+}
+
+async function destinations(options) {
+  const files = [{ path: options.output, template: options.template, theme: options.theme }];
+  if (options.variantsDir) {
+    for (const template of templates) {
+      for (const theme of themes) {
+        files.push({ path: resolve(options.variantsDir, `codex-${template}-${theme}.svg`), template, theme });
+      }
+    }
+  }
+  const [inputKey, statusKey] = await Promise.all([pathIdentity(options.input), pathIdentity(options.status)]);
+  const unique = new Map();
+  for (const file of files) {
+    const key = await pathIdentity(file.path);
+    if (key === inputKey || key === statusKey) {
+      throw new Error('Input, status, and image output paths must be different.');
+    }
+    const previous = unique.get(key);
+    if (previous && (previous.template !== file.template || previous.theme !== file.theme)) {
+      throw new Error('The primary output conflicts with a different requested variant.');
+    }
+    unique.set(key, file);
+  }
+  if (inputKey && inputKey === statusKey) throw new Error('Input and status paths must be different.');
+  return [...unique.values()];
+}
+
+export async function updateCards(options, { readUsage = collectUsage, now = () => new Date() } = {}) {
+  const files = await destinations(options);
+  const checkedAt = now().toISOString();
+  let changed = 0;
+  try {
+    let raw;
+    if (options.input) {
+      try { raw = JSON.parse(await readFile(options.input, 'utf8')); }
+      catch { throw new Error('Could not read a valid aggregate JSON input file.'); }
+    } else {
+      raw = await readUsage();
+    }
+    const summary = validateSummary(raw);
+    // Render and validate every output before touching any existing image.
+    const pending = [];
+    for (const file of files) {
+      const rendering = { template: file.template, theme: file.theme, cadence: options.cadence, logo: options.logo };
+      const existing = await readOptional(file.path);
+      const stored = existing?.match(/<metadata id="codex-activity-card" data-updated-at="([^"]+)"\s*\/>/)?.[1];
+      const previousAt = stored && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(stored)
+        && Number.isFinite(Date.parse(stored)) && new Date(stored).toISOString() === stored ? stored : checkedAt;
+      if (existing === documentFor(summary, rendering, previousAt)) continue;
+      pending.push({ path: file.path, content: documentFor(summary, rendering, checkedAt) });
+    }
+    for (const file of pending) {
+      await atomicWrite(file.path, file.content);
+      changed++;
+    }
+    if (options.status) {
+      await atomicWrite(options.status, `${JSON.stringify({ ok: true, checkedAt, changed }, null, 2)}\n`, 0o600);
+    }
+    return { changed, checkedAt };
+  } catch (error) {
+    if (options.status) {
+      // Raw app-server errors, usage, and credentials never enter diagnostics.
+      await atomicWrite(options.status, `${JSON.stringify({ ok: false, checkedAt, error: 'Activity card refresh failed.' }, null, 2)}\n`, 0o600)
+        .catch(() => {});
+    }
+    throw error;
+  }
 }
 
 async function main() {
-  const summary = await readUsage();
-  const lifetime = requireCount(summary?.lifetimeTokens, 'lifetime tokens');
-  const streak = requireCount(summary?.currentStreakDays, 'current streak');
-  const peak = requireCount(summary?.peakDailyTokens, 'peak daily tokens');
-  const now = new Date();
-  const dateLabel = now.toLocaleDateString('en-US', {
-    day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC',
-  }).toUpperCase();
-  const isoDate = now.toISOString().slice(0, 10);
-
-  let svg = await readFile(cardPath, 'utf8');
-  svg = replaceText(svg, 'lifetime-count', compact(lifetime));
-  svg = replaceText(svg, 'streak-count', String(streak));
-  svg = replaceText(svg, 'peak-count', compact(peak));
-  svg = replaceText(svg, 'updated-at', `REFRESHED · ${dateLabel}`);
-  svg = replaceText(svg, 'refresh-state', 'DAILY SYNC');
-  svg = updateDescription(svg, isoDate);
-  await writeFile(cardPath, svg, 'utf8');
-  console.log(`Updated ${cardPath}. Review and commit it when ready.`);
+  const options = parseArguments(process.argv.slice(2));
+  if (options.help) { console.log(help); return; }
+  const { changed } = await updateCards(options);
+  console.log(changed ? `Updated ${changed} activity card${changed === 1 ? '' : 's'}.` : 'Cards already current.');
 }
 
-main().catch(error => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(error => {
+    console.error(error.code ? 'Could not access an activity card file; check paths and permissions.' : error.message);
+    process.exitCode = 1;
+  });
+}
