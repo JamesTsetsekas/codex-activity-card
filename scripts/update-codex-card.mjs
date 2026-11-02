@@ -12,6 +12,8 @@ const help = `Usage: node scripts/update-codex-card.mjs [options]
   --output PATH       Primary SVG (default: assets/codex-activity.svg)
   --template NAME     minimal (default), terminal, or badge
   --theme NAME        dark (default) or light
+  --palette NAME      neutral (default) or green
+  --background NAME   transparent (default) or solid
   --cadence NAME      hourly (default), daily, or manual; display label only
   --no-logo           Use a text-only product label
   --variants-dir DIR  Also write all six layout/theme combinations
@@ -26,11 +28,12 @@ Unchanged cards keep their update timestamp and are not rewritten.
 export function parseArguments(args) {
   const options = {
     output: fileURLToPath(new URL('../assets/codex-activity.svg', import.meta.url)),
-    template: 'minimal', theme: 'dark', cadence: 'hourly', logo: true,
+    template: 'minimal', theme: 'dark', palette: 'neutral', background: 'transparent', cadence: 'hourly', logo: true,
   };
   const values = new Map([
     ['--output', 'output'], ['--template', 'template'], ['--theme', 'theme'],
     ['--cadence', 'cadence'], ['--variants-dir', 'variantsDir'],
+    ['--palette', 'palette'], ['--background', 'background'],
     ['--input', 'input'], ['--status', 'status'],
   ]);
   const seen = new Set();
@@ -48,6 +51,8 @@ export function parseArguments(args) {
   }
   if (!templates.includes(options.template)) throw new Error('Template must be minimal, terminal, or badge.');
   if (!themes.includes(options.theme)) throw new Error('Theme must be dark or light.');
+  if (!['neutral', 'green'].includes(options.palette)) throw new Error('Palette must be neutral or green.');
+  if (!['transparent', 'solid'].includes(options.background)) throw new Error('Background must be transparent or solid.');
   if (!['hourly', 'daily', 'manual'].includes(options.cadence)) throw new Error('Cadence must be hourly, daily, or manual.');
   for (const name of ['output', 'variantsDir', 'input', 'status']) {
     if (options[name]) options[name] = resolve(options[name]);
@@ -137,7 +142,7 @@ export async function updateCards(options, { readUsage = collectUsage, now = () 
     // Render and validate every output before touching any existing image.
     const pending = [];
     for (const file of files) {
-      const rendering = { template: file.template, theme: file.theme, cadence: options.cadence, logo: options.logo };
+      const rendering = { template: file.template, theme: file.theme, palette: options.palette, background: options.background, cadence: options.cadence, logo: options.logo };
       const existing = await readOptional(file.path);
       const stored = existing?.match(/<metadata id="codex-activity-card" data-updated-at="([^"]+)"\s*\/>/)?.[1];
       const previousAt = stored && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(stored)

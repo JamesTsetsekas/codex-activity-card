@@ -2,9 +2,15 @@ import { readFileSync } from 'node:fs';
 
 const logoSvg = readFileSync(new URL('../../assets/brands/codex.svg', import.meta.url), 'utf8').trim();
 const templates = new Set(['minimal', 'terminal', 'badge']);
-const themes = {
-  dark: { surface: '#171c19', border: '#354039', text: '#f1f5ee', muted: '#a6b4a9', accent: '#b4dca5', rule: '#354039' },
-  light: { surface: '#fafcf8', border: '#d4ddd2', text: '#222d24', muted: '#5a6b5e', accent: '#3e6734', rule: '#d4ddd2' },
+const palettes = {
+  neutral: {
+    dark: { surface: '#0d1117', border: '#30363d', text: '#f0f3f6', muted: '#9198a1', accent: '#f0f3f6', rule: '#3d444d' },
+    light: { surface: '#ffffff', border: '#d1d9e0', text: '#1f2328', muted: '#59636e', accent: '#1f2328', rule: '#d1d9e0' },
+  },
+  green: {
+    dark: { surface: '#171c19', border: '#354039', text: '#f1f5ee', muted: '#a6b4a9', accent: '#b4dca5', rule: '#354039' },
+    light: { surface: '#fafcf8', border: '#d4ddd2', text: '#222d24', muted: '#5a6b5e', accent: '#3e6734', rule: '#d4ddd2' },
+  },
 };
 const cadences = { hourly: 'Hourly checks', daily: 'Daily checks', manual: 'Manual refresh' };
 const sans = 'Segoe UI, Helvetica, Arial, sans-serif';
@@ -118,9 +124,11 @@ function badge(summary, palette, options) {
 export function renderCard(input, options = {}) {
   const summary = validateSummary(input);
   if (!options || typeof options !== 'object' || Array.isArray(options)) throw new Error('Card options must be an object.');
-  const config = { template: 'minimal', theme: 'dark', checkedAt: new Date().toISOString(), cadence: 'hourly', logo: true, ...options };
+  const config = { template: 'minimal', theme: 'dark', palette: 'neutral', background: 'transparent', checkedAt: new Date().toISOString(), cadence: 'hourly', logo: true, ...options };
   if (!templates.has(config.template)) throw new Error('Choose a template: minimal, terminal, or badge.');
-  if (!Object.hasOwn(themes, config.theme)) throw new Error('Choose a theme: dark or light.');
+  if (!['dark', 'light'].includes(config.theme)) throw new Error('Choose a theme: dark or light.');
+  if (!Object.hasOwn(palettes, config.palette)) throw new Error('Choose a palette: neutral or green.');
+  if (!['transparent', 'solid'].includes(config.background)) throw new Error('Choose a background: transparent or solid.');
   if (!Object.hasOwn(cadences, config.cadence)) throw new Error('Choose a cadence: hourly, daily, or manual.');
   if (typeof config.logo !== 'boolean') throw new Error('The logo option must be a boolean.');
   if (typeof config.checkedAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(config.checkedAt) || Number.isNaN(Date.parse(config.checkedAt))) {
@@ -132,13 +140,13 @@ export function renderCard(input, options = {}) {
     : config.checkedAt.replace(/Z$/, '.000Z');
   if (date.toISOString() !== canonicalInput) throw new Error('checkedAt must be a valid UTC ISO timestamp.');
   const dateLabel = `${date.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric', timeZone: 'UTC' })} · ${date.toISOString().slice(11, 16)} UTC`;
-  const palette = themes[config.theme];
+  const palette = palettes[config.palette][config.theme];
   const { height, content } = ({ minimal, terminal, badge })[config.template](summary, palette, config, dateLabel);
   const description = `Codex account aggregate: ${exact(summary.lifetimeTokens)} lifetime tokens; current streak ${exact(summary.currentStreakDays)} days; peak daily tokens ${exact(summary.peakDailyTokens)}. Card updated after a successful account check at ${date.toISOString()}; source data timestamp unavailable. ${cadences[config.cadence]}.`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="${height}" viewBox="0 0 640 ${height}" role="img" aria-labelledby="title description">
 <title id="title">Codex activity</title>
 <desc id="description">${escapeXml(description)}</desc>
-<rect x="0.5" y="0.5" width="639" height="${height - 1}" rx="${config.template === 'badge' ? 10 : 16}" fill="${palette.surface}" stroke="${palette.border}"/>
+${config.background === 'solid' ? `<rect x="0.5" y="0.5" width="639" height="${height - 1}" rx="${config.template === 'badge' ? 10 : 16}" fill="${palette.surface}" stroke="${palette.border}"/>` : ''}
 ${content}
 </svg>\n`;
 }

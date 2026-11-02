@@ -1,12 +1,15 @@
 # Codex Activity Card
 
-Generate a self-contained Codex usage SVG for a GitHub profile README. Choose a Minimal, Terminal, or Badge layout in light or dark colors. One local Codex account summary supplies all variants; no hosted service or runtime dependencies are required.
+Generate a self-contained Codex usage SVG for a GitHub profile README. Choose a Minimal, Terminal, or Badge layout with neutral text and a transparent background by default. One local Codex account summary supplies all variants; no hosted service or runtime dependencies are required.
 
 <p>
-  <img src="./assets/codex-activity.svg" alt="Illustrative Minimal dark Codex card showing lifetime tokens, current streak, and peak daily tokens." width="640" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/examples/minimal-dark.svg" />
+    <img src="./assets/examples/minimal-light.svg" alt="Illustrative Minimal Codex card showing lifetime tokens, current streak, and peak daily tokens." width="640" />
+  </picture>
 </p>
 
-The checked-in previews use fixed illustrative values, not a live account.
+The checked-in previews use fixed illustrative values, not a live account. The gallery uses solid neutral backgrounds so both color variants remain readable on this page; normal output has a transparent background.
 
 ## Layouts and themes
 
@@ -16,7 +19,9 @@ The checked-in previews use fixed illustrative values, not a live account.
 | Terminal | ![Terminal dark example](./assets/examples/terminal-dark.svg) | ![Terminal light example](./assets/examples/terminal-light.svg) |
 | Badge | ![Badge dark example](./assets/examples/badge-dark.svg) | ![Badge light example](./assets/examples/badge-light.svg) |
 
-Minimal is the default. Layout and theme are independent, so `--template terminal --theme light` works too. The Codex mark is embedded in each SVG; `--no-logo` provides a text-only version. See the [mark's source and attribution](./assets/brands/README.md).
+Minimal is the default. Layout, theme, palette, and background are independent, so `--template terminal --theme light` works too. The Codex mark is embedded in each SVG; `--no-logo` provides a text-only version. See the [mark's source and attribution](./assets/brands/README.md).
+
+Use `--palette neutral` for white or charcoal figures, or `--palette green` for the original green accent. Use `--background transparent` to blend into the surrounding page, or `--background solid` for a filled card. To retain the original appearance, select `--palette green --background solid`.
 
 ## Requirements
 
@@ -29,15 +34,18 @@ Minimal is the default. Layout and theme are independent, so `--template termina
 Keep this repository on the signed-in machine and render directly into your separate GitHub profile checkout:
 
 ```bash
-npm run update -- --output /absolute/path/to/profile/assets/codex-activity.svg
+npm run update -- --output /absolute/path/to/profile/assets/codex-activity.svg --variants-dir /absolute/path/to/profile/assets/codex
 ```
 
-The destination directory is created if needed; an existing template file is not required. The defaults are `--template minimal --theme dark --cadence hourly`.
+The destination directory is created if needed; an existing template file is not required. The defaults are `--template minimal --theme dark --palette neutral --background transparent --cadence hourly`.
 
 Add the result to your profile README, then commit and push it:
 
 ```html
-<img src="./assets/codex-activity.svg" alt="Codex activity: lifetime tokens, current streak, and peak daily tokens" width="640" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/codex/codex-minimal-dark.svg" />
+  <img src="./assets/codex/codex-minimal-light.svg" alt="Codex activity: lifetime tokens, current streak, and peak daily tokens" width="640" />
+</picture>
 ```
 
 Select a different layout and theme:
@@ -54,7 +62,7 @@ npm run update -- --output /absolute/path/to/profile/assets/codex-activity.svg -
 
 The variants are named `codex-minimal-dark.svg`, `codex-minimal-light.svg`, `codex-terminal-dark.svg`, `codex-terminal-light.svg`, `codex-badge-dark.svg`, and `codex-badge-light.svg`.
 
-For a profile that follows GitHub's selected color scheme, reference the matching generated files:
+Transparency lets the page show through, but the text still needs the matching light or dark theme. For a profile that follows GitHub's selected color scheme, reference both generated files:
 
 ```html
 <picture>
